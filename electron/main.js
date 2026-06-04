@@ -48,22 +48,24 @@ ipcMain.handle('save-settings', (_, { apiId, affiliateId, source }) => {
 })
 
 // スクレイピング用HTTPフェッチ
-ipcMain.handle('fetch-page', (_, url) => {
-  return new Promise((resolve, reject) => {
-    const req = https.get(url, {
-      timeout: 10000,
+const http = require('http')
+
+ipcMain.handle('fetch-page', async (_, url) => {
+  return new Promise((resolve) => {
+    const client = url.startsWith('https') ? https : http
+    const options = {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
         'Accept-Language': 'ja,en;q=0.9',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       },
-    }, (res) => {
+      timeout: 10000,
+    }
+    client.get(url, options, (res) => {
       const chunks = []
-      res.on('data', (chunk) => chunks.push(chunk))
+      res.on('data', chunk => chunks.push(chunk))
       res.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')))
-    })
-    req.on('timeout', () => { req.destroy(); reject(new Error('TIMEOUT')) })
-    req.on('error', reject)
+    }).on('error', () => resolve(null)).on('timeout', () => resolve(null))
   })
 })
 

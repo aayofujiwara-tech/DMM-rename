@@ -15,8 +15,8 @@ export function extractCid(filename) {
   // 2. 画質・DRMサフィックス除去（例: _v1_drm_a_4k）
   s = s.replace(/_(v\d+_)?drm_[a-z0-9_]+$/i, '')
 
-  // 3. 末尾のエンコード種別除去（hhb / mhb / a2d / hhb2）
-  s = s.replace(/(hhb2?|mhb|a2d)$/i, '')
+  // 3. 末尾のエンコード種別除去（hhb / mhb / a2d / hhb2 + 末尾数字）
+  s = s.replace(/(hhb2?|mhb\d*|a2d\d*|hhb\d*)$/i, '')
 
   // 4. 先頭の数字除去（例: 1dandy → dandy）
   s = s.replace(/^\d+/, '')
