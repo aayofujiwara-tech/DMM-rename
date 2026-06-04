@@ -13,6 +13,7 @@ export default function FolderSelect({ onNext }) {
     setErrorMsg('')
 
     const { apiId, affiliateId, source } = await window.electron.getSettings()
+    console.log('source:', source)
 
     if (source !== 'scraping') {
       if (!apiId || !affiliateId) {
@@ -37,6 +38,7 @@ export default function FolderSelect({ onNext }) {
       ...f,
       ...extractCid(f.name),
     }))
+    console.log('files:', filesWithCid)
 
     setUsingScraping(source === 'scraping')
     setStatus('loading')

@@ -51,21 +51,36 @@ ipcMain.handle('save-settings', (_, { apiId, affiliateId, source }) => {
 const http = require('http')
 
 ipcMain.handle('fetch-page', async (_, url) => {
+  const options = {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language': 'ja,en;q=0.9',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    },
+    timeout: 10000,
+  }
+
   return new Promise((resolve) => {
-    const client = url.startsWith('https') ? https : http
-    const options = {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-        'Accept-Language': 'ja,en;q=0.9',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      },
-      timeout: 10000,
+    const fetchUrl = (targetUrl, redirectCount) => {
+      if (redirectCount > 5) return resolve(null)
+      const client = targetUrl.startsWith('https') ? https : http
+      const req = client.get(targetUrl, options, (res) => {
+        if (res.statusCode === 301 || res.statusCode === 302) {
+          res.resume()
+          const location = res.headers.location
+          if (!location) return resolve(null)
+          const next = location.startsWith('http') ? location : new URL(location, targetUrl).href
+          return fetchUrl(next, redirectCount + 1)
+        }
+        const chunks = []
+        res.on('data', chunk => chunks.push(chunk))
+        res.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')))
+        res.on('error', () => resolve(null))
+      })
+      req.on('error', () => resolve(null))
+      req.on('timeout', () => { req.destroy(); resolve(null) })
     }
-    client.get(url, options, (res) => {
-      const chunks = []
-      res.on('data', chunk => chunks.push(chunk))
-      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')))
-    }).on('error', () => resolve(null)).on('timeout', () => resolve(null))
+    fetchUrl(url, 0)
   })
 })
 

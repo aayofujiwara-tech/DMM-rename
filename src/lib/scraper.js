@@ -1,6 +1,9 @@
 export async function scrapeItem(cid) {
+  console.log('scrapeItem called:', cid)
   const url = `https://www.dmm.co.jp/digital/videoa/-/detail/=/cid=${cid}/`
+  console.log('fetching:', url)
   const html = await window.electron.fetchPage(url)
+  console.log('html length:', html ? html.length : 'null')
   if (!html) return null
 
   // タイトル取得
