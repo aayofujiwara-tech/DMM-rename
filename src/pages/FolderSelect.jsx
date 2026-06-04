@@ -1,20 +1,24 @@
 import { useState } from 'react'
 import { extractCid } from '../lib/cidExtractor'
 import { fetchAll } from '../lib/fanzaApi'
+import { scrapeAll } from '../lib/scraper'
 
 export default function FolderSelect({ onNext }) {
-  const [status, setStatus] = useState('idle') // idle | loading | error
+  const [status, setStatus] = useState('idle') // idle | loading
   const [errorMsg, setErrorMsg] = useState('')
   const [progress, setProgress] = useState({ current: 0, total: 0 })
+  const [usingScraping, setUsingScraping] = useState(false)
 
   const handleSelect = async () => {
     setErrorMsg('')
 
-    // APIキー確認
-    const { apiId, affiliateId } = await window.electron.getSettings()
-    if (!apiId || !affiliateId) {
-      setErrorMsg('APIキーが設定されていません。右上の設定から入力してください。')
-      return
+    const { apiId, affiliateId, source } = await window.electron.getSettings()
+
+    if (source !== 'scraping') {
+      if (!apiId || !affiliateId) {
+        setErrorMsg('APIキーが設定されていません。右上の設定から入力してください。')
+        return
+      }
     }
 
     // フォルダ選択
@@ -34,16 +38,25 @@ export default function FolderSelect({ onNext }) {
       ...extractCid(f.name),
     }))
 
+    setUsingScraping(source === 'scraping')
     setStatus('loading')
     setProgress({ current: 0, total: filesWithCid.length })
 
     try {
-      const results = await fetchAll(
-        filesWithCid,
-        apiId,
-        affiliateId,
-        (current, total) => setProgress({ current, total })
-      )
+      let results
+      if (source === 'scraping') {
+        results = await scrapeAll(
+          filesWithCid,
+          (current, total) => setProgress({ current, total })
+        )
+      } else {
+        results = await fetchAll(
+          filesWithCid,
+          apiId,
+          affiliateId,
+          (current, total) => setProgress({ current, total })
+        )
+      }
       onNext(results, folder)
     } catch (e) {
       if (e.message === 'AUTH_ERROR') {
@@ -71,7 +84,7 @@ export default function FolderSelect({ onNext }) {
 
       {status === 'loading' && (
         <>
-          <p>Fanza APIで情報を取得中...</p>
+          <p>{usingScraping ? 'スクレイピングで情報を取得中...' : 'Fanza APIで情報を取得中...'}</p>
           <p>
             {progress.current} / {progress.total} 件
           </p>

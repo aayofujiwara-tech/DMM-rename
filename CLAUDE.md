@@ -79,6 +79,7 @@ C:\Users\ain12\DMM-rename\
 │   └── lib/
 │       ├── cidExtractor.js
 │       ├── fanzaApi.js
+│       ├── scraper.js
 │       └── renamer.js
 ├── index.html
 ├── package.json
@@ -500,23 +501,27 @@ export default function App() {
 
 ## src/pages/Settings.jsx（完全版）
 
+データソース選択UI付き。`source` が `'api'` のときのみAPIキー入力欄を表示。
+
 ```jsx
 import { useState, useEffect } from 'react'
 
 export default function Settings({ onBack }) {
   const [apiId, setApiId] = useState('')
   const [affiliateId, setAffiliateId] = useState('')
+  const [source, setSource] = useState('scraping')
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    window.electron.getSettings().then(({ apiId, affiliateId }) => {
+    window.electron.getSettings().then(({ apiId, affiliateId, source }) => {
       setApiId(apiId)
       setAffiliateId(affiliateId)
+      setSource(source ?? 'scraping')
     })
   }, [])
 
   const save = async () => {
-    await window.electron.saveSettings({ apiId, affiliateId })
+    await window.electron.saveSettings({ apiId, affiliateId, source })
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -524,34 +529,39 @@ export default function Settings({ onBack }) {
   return (
     <div className="page">
       <h2>設定</h2>
-      <p>
-        Fanza Affiliate API のキーを入力してください。<br />
-        未登録の場合は{' '}
-        <a href="https://affiliate.dmm.com/api/" target="_blank" rel="noreferrer">
-          こちら
-        </a>{' '}
-        から取得してください。
-      </p>
 
-      <label>
-        API ID
-        <input
-          type="text"
-          value={apiId}
-          onChange={(e) => setApiId(e.target.value)}
-          placeholder="your_api_id"
-        />
-      </label>
+      <label>データソース</label>
+      <div className="radio-group">
+        <label>
+          <input type="radio" value="scraping" checked={source === 'scraping'} onChange={() => setSource('scraping')} />
+          スクレイピング（設定不要）
+        </label>
+        <label>
+          <input type="radio" value="api" checked={source === 'api'} onChange={() => setSource('api')} />
+          Fanza API（APIキー必要）
+        </label>
+      </div>
 
-      <label>
-        アフィリエイト ID
-        <input
-          type="text"
-          value={affiliateId}
-          onChange={(e) => setAffiliateId(e.target.value)}
-          placeholder="your-001"
-        />
-      </label>
+      {source === 'api' && (
+        <>
+          <p>
+            Fanza Affiliate API のキーを入力してください。<br />
+            未登録の場合は{' '}
+            <a href="https://affiliate.dmm.com/api/" target="_blank" rel="noreferrer">
+              こちら
+            </a>{' '}
+            から取得してください。
+          </p>
+          <label>
+            API ID
+            <input type="text" value={apiId} onChange={(e) => setApiId(e.target.value)} placeholder="your_api_id" />
+          </label>
+          <label>
+            アフィリエイト ID
+            <input type="text" value={affiliateId} onChange={(e) => setAffiliateId(e.target.value)} placeholder="your-001" />
+          </label>
+        </>
+      )}
 
       <div className="actions">
         <button onClick={onBack}>← 戻る</button>
@@ -568,62 +578,55 @@ export default function Settings({ onBack }) {
 
 ## src/pages/FolderSelect.jsx（完全版）
 
+設定の `source` を読み取り、`'scraping'` なら `scrapeAll`、`'api'` なら `fetchAll` を呼ぶ。
+
 ```jsx
 import { useState } from 'react'
 import { extractCid } from '../lib/cidExtractor'
 import { fetchAll } from '../lib/fanzaApi'
+import { scrapeAll } from '../lib/scraper'
 
 export default function FolderSelect({ onNext }) {
-  const [status, setStatus] = useState('idle') // idle | loading | error
+  const [status, setStatus] = useState('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [progress, setProgress] = useState({ current: 0, total: 0 })
+  const [usingScraping, setUsingScraping] = useState(false)
 
   const handleSelect = async () => {
     setErrorMsg('')
+    const { apiId, affiliateId, source } = await window.electron.getSettings()
 
-    // APIキー確認
-    const { apiId, affiliateId } = await window.electron.getSettings()
-    if (!apiId || !affiliateId) {
+    if (source !== 'scraping' && (!apiId || !affiliateId)) {
       setErrorMsg('APIキーが設定されていません。右上の設定から入力してください。')
       return
     }
 
-    // フォルダ選択
     const folder = await window.electron.selectFolder()
     if (!folder) return
 
-    // .dcvファイル取得
     const files = await window.electron.getDcvFiles(folder)
     if (files.length === 0) {
       setErrorMsg('選択したフォルダに .dcv ファイルが見つかりませんでした。')
       return
     }
 
-    // cid抽出
-    const filesWithCid = files.map((f) => ({
-      ...f,
-      ...extractCid(f.name),
-    }))
-
+    const filesWithCid = files.map((f) => ({ ...f, ...extractCid(f.name) }))
+    setUsingScraping(source === 'scraping')
     setStatus('loading')
     setProgress({ current: 0, total: filesWithCid.length })
 
     try {
-      const results = await fetchAll(
-        filesWithCid,
-        apiId,
-        affiliateId,
-        (current, total) => setProgress({ current, total })
-      )
+      let results
+      if (source === 'scraping') {
+        results = await scrapeAll(filesWithCid, (current, total) => setProgress({ current, total }))
+      } else {
+        results = await fetchAll(filesWithCid, apiId, affiliateId, (current, total) => setProgress({ current, total }))
+      }
       onNext(results, folder)
     } catch (e) {
-      if (e.message === 'AUTH_ERROR') {
-        setErrorMsg('APIキーが無効です。設定を確認してください。')
-      } else if (e.message === 'NETWORK_ERROR') {
-        setErrorMsg('通信エラーが発生しました。インターネット接続を確認してください。')
-      } else {
-        setErrorMsg(`エラーが発生しました: ${e.message}`)
-      }
+      if (e.message === 'AUTH_ERROR') setErrorMsg('APIキーが無効です。設定を確認してください。')
+      else if (e.message === 'NETWORK_ERROR') setErrorMsg('通信エラーが発生しました。インターネット接続を確認してください。')
+      else setErrorMsg(`エラーが発生しました: ${e.message}`)
       setStatus('idle')
     }
   }
@@ -634,23 +637,15 @@ export default function FolderSelect({ onNext }) {
         <>
           <p>.dcv ファイルが入ったフォルダを選択してください。</p>
           {errorMsg && <p className="error">{errorMsg}</p>}
-          <button className="primary large" onClick={handleSelect}>
-            フォルダを選択
-          </button>
+          <button className="primary large" onClick={handleSelect}>フォルダを選択</button>
         </>
       )}
-
       {status === 'loading' && (
         <>
-          <p>Fanza APIで情報を取得中...</p>
-          <p>
-            {progress.current} / {progress.total} 件
-          </p>
+          <p>{usingScraping ? 'スクレイピングで情報を取得中...' : 'Fanza APIで情報を取得中...'}</p>
+          <p>{progress.current} / {progress.total} 件</p>
           <div className="progress-bar">
-            <div
-              className="progress-fill"
-              style={{ width: `${(progress.current / progress.total) * 100}%` }}
-            />
+            <div className="progress-fill" style={{ width: `${(progress.current / progress.total) * 100}%` }} />
           </div>
         </>
       )}
@@ -941,4 +936,66 @@ git push origin main
 | `window.electron is undefined` | preload.jsの読み込み失敗 | `webPreferences` の `preload` パスを確認 |
 | Viteビルド後に画面が真っ白 | `base: './'` が未設定 | `vite.config.js` の `base: './'` を確認 |
 | APIが401を返す | APIキー不正 | Fanzaアフィリエイト管理画面でAPIキーを再確認 |
+| スクレイピングでタイトル取得できない | HTML構造変更 | `og:title` と `h1.item-ttl` の両方を試みる実装済み |
+
+---
+
+## データソース切り替え機能
+
+### 概要
+
+Fanza API（要APIキー）とスクレイピング（設定不要）を設定画面で切り替えられる。
+デフォルトは `'scraping'`。
+
+### electron/main.js の追加ハンドラ
+
+`fetch-page`: Node.js の `https` モジュールでDMMページをHTTP取得して生HTMLを返す。
+- User-Agent をブラウザに偽装
+- タイムアウト 10 秒
+- 文字コード UTF-8
+
+### electron/preload.js の追加API
+
+```javascript
+fetchPage: (url) => ipcRenderer.invoke('fetch-page', url),
+```
+
+### electron-store の保存キー（更新後）
+
+| キー | 型 | デフォルト | 内容 |
+|------|----|------------|------|
+| `apiId` | string | `''` | Fanza API ID |
+| `affiliateId` | string | `''` | アフィリエイト ID |
+| `source` | `'api'` \| `'scraping'` | `'scraping'` | データソース |
+
+### src/lib/scraper.js（完全版）
+
+取得先: `https://www.dmm.co.jp/digital/videoa/-/detail/=/cid={cid}/`
+
+HTMLのパース方法（正規表現）:
+- タイトル: `<meta property="og:title" content="...">` → フォールバックで `<h1 class="item-ttl">`
+- 女優名: `<a href="/mono/actress/.../">女優名</a>` → フォールバックで `<span class="actress">`
+
+返り値は `fanzaApi.js` と同形式: `{ title: string, actresses: string[] } | null`
+
+### src/index.css の追加スタイル
+
+```css
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.radio-group label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: #e0e0e0;
+  margin-bottom: 0;
+}
+```
 
