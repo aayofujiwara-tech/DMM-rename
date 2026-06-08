@@ -1,20 +1,7 @@
 export async function scrapeItem(cid) {
-  console.log('scrapeItem called:', cid)
   const url = `https://www.dmm.co.jp/digital/videoa/-/detail/=/cid=${cid}/`
-  console.log('fetching:', url)
   const html = await window.electron.fetchPage(url)
-  console.log('html length:', html ? html.length : 'null')
   if (!html) return null
-
-  // デバッグ: HTMLの先頭3000文字を出力
-  console.log('html preview:', html.substring(0, 3000))
-
-  // タイトル取得（既存パターン - デバッグ確認用）
-  const titleMatchOrig = html.match(/<meta property="og:title" content="([^"]+)"/)
-  console.log('titleMatch (original pattern):', titleMatchOrig)
-
-  const actressMatchesOrig = [...html.matchAll(/\/mono\/actress\/\d+\/-\/"><span[^>]*>([^<]+)<\/span>/g)]
-  console.log('actressMatches (original pattern):', actressMatchesOrig)
 
   // タイトル取得（強化版 - 属性順序・引用符種別に依存しない）
   let title = null
@@ -35,7 +22,6 @@ export async function scrapeItem(cid) {
     if (m3) title = m3[1].replace(/\s*[-|]?\s*(FANZA|DMM)[^\n]*/i, '').trim()
   }
 
-  console.log('resolved title:', title)
   if (!title) return null
 
   // 女優名取得（強化版 - 複数パターン順に試す）
@@ -65,8 +51,6 @@ export async function scrapeItem(cid) {
       actresses = names.map(m => m[1])
     }
   }
-
-  console.log('resolved actresses:', actresses)
 
   return { title, actresses }
 }

@@ -7,6 +7,8 @@
  *   miaa00629mhb.dcv        → { cid: 'miaa00629', label: 'MIAA-629' }
  */
 export function extractCid(filename) {
+  // パス区切り文字より後ろのファイル名のみ使用（パストラバーサル対策）
+  filename = filename.replace(/.*[/\\]/, '')
   let s = filename
 
   // 1. 拡張子除去

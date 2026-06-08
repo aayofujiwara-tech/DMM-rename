@@ -50,7 +50,20 @@ ipcMain.handle('save-settings', (_, { apiId, affiliateId, source }) => {
 // スクレイピング用HTTPフェッチ
 const http = require('http')
 
+const ALLOWED_SCRAPE_HOSTS = new Set(['www.dmm.co.jp', 'www.fanza.com'])
+
+function isAllowedUrl(urlStr) {
+  try {
+    const parsed = new URL(urlStr)
+    return parsed.protocol === 'https:' && ALLOWED_SCRAPE_HOSTS.has(parsed.hostname)
+  } catch {
+    return false
+  }
+}
+
 ipcMain.handle('fetch-page', async (_, url) => {
+  if (!isAllowedUrl(url)) return null
+
   const options = {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
@@ -65,8 +78,8 @@ ipcMain.handle('fetch-page', async (_, url) => {
   return new Promise((resolve) => {
     const fetchUrl = (targetUrl, redirectCount) => {
       if (redirectCount > 5) return resolve(null)
-      const client = targetUrl.startsWith('https') ? https : http
-      const req = client.get(targetUrl, options, (res) => {
+      if (!isAllowedUrl(targetUrl)) return resolve(null)
+      const req = https.get(targetUrl, options, (res) => {
         if (res.statusCode === 301 || res.statusCode === 302) {
           res.resume()
           const location = res.headers.location
@@ -97,10 +110,14 @@ ipcMain.handle('select-folder', async () => {
 
 // .dcvファイル一覧取得
 ipcMain.handle('get-dcv-files', (_, folderPath) => {
-  const files = fs.readdirSync(folderPath)
+  const normalized = path.resolve(folderPath)
+  if (normalized !== folderPath && !normalized.startsWith(folderPath)) {
+    return []
+  }
+  const files = fs.readdirSync(normalized)
   return files
     .filter(f => f.endsWith('.dcv'))
-    .map(f => ({ name: f, path: path.join(folderPath, f) }))
+    .map(f => ({ name: f, path: path.join(normalized, f) }))
 })
 
 // ファイルリネーム実行
@@ -109,7 +126,14 @@ ipcMain.handle('rename-files', (_, renames) => {
   const results = []
   for (const { oldPath, newPath } of renames) {
     try {
-      fs.renameSync(oldPath, newPath)
+      const normalizedOld = path.resolve(oldPath)
+      const normalizedNew = path.resolve(newPath)
+      // 同一ディレクトリ内のリネームのみ許可（パストラバーサル対策）
+      if (path.dirname(normalizedOld) !== path.dirname(normalizedNew)) {
+        results.push({ oldPath, success: false, error: 'Cross-directory rename not allowed' })
+        continue
+      }
+      fs.renameSync(normalizedOld, normalizedNew)
       results.push({ oldPath, success: true })
     } catch (e) {
       results.push({ oldPath, success: false, error: e.message })
